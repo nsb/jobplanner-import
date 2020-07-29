@@ -13,11 +13,14 @@ defmodule JobplannerImport do
   alias JobplannerImport.Client
   alias JobplannerImport.Property
 
-  @base_url System.get_env("JOBPLANNER_API") || "https://api.myjobplanner.com/v1/"
+  # @base_url System.get_env("JOBPLANNER_API") || "https://api.myjobplanner.com/v1/"
+  # @base_url "https://api.myjobplanner.com/v1/"
+  @base_url "http://localhost:8000/v1/"
   @headers [{"Content-Type", "application/json"}]
   @options [
     hackney: [
-      basic_auth: {System.get_env("JOBPLANNER_USERNAME"), System.get_env("JOBPLANNER_PASSWORD")}
+      pool: :default,
+      basic_auth: {"abc", "fixme"}
     ]
   ]
 
@@ -30,29 +33,33 @@ defmodule JobplannerImport do
 
   def import_from_csv(path) do
     File.stream!(path)
-    |> CSV.decode(headers: true)
+    |> CSV.decode(separator: ?;, headers: true)
   end
 
   def post_clients(clients_data) do
     Enum.map(
       clients_data,
       fn {:ok, row} ->
+        IO.puts(row["\uFEFFKontaktnavn"])
+        client_name = String.split(row["\uFEFFKontaktnavn"], " ", parts: 2)
+
         client = %Client{
-          business: 1,
-          first_name: row["First Name"],
-          last_name: row["Last Name"],
-          email: row["E-mails"],
+          business: 0,
+          first_name: Enum.at(client_name, 0),
+          last_name: Enum.at(client_name, 1),
+          email: row["E-mail"],
           notes: "",
-          phone: row["Main Phone #s"],
+          phone: row["Telefon"],
           properties: []
         }
 
         property = %Property{
-          address1: row["Service Street 1"],
-          address2: row["Service Street 2"],
-          city: row["Service City"],
-          country: row["Service Country"],
-          zip_code: row["Service Postcode"]
+          address1: row["Adresse"],
+          address2: "",
+          city: row["By"],
+          # row["Landekode"],
+          country: "Danmark",
+          zip_code: row["Postnummer"]
         }
 
         with {:ok, client_response} <- post_client(client),
@@ -65,10 +72,12 @@ defmodule JobplannerImport do
   def post_client(client) do
     Logger.info("Posting client " <> client.first_name)
 
-    {:ok, response} =
-      HTTPoison.post(@base_url <> "clients/", Poison.encode!(client), @headers, @options)
+    ret = HTTPoison.post(@base_url <> "clients/", Poison.encode!(client), @headers, @options)
 
-    Poison.decode(response.body, as: %Client{})
+    case ret do
+      {:ok, response} -> Poison.decode(response.body, as: %Client{})
+      {:error, reason} -> IO.inspect(reason)
+    end
   end
 
   def post_property(property) do
